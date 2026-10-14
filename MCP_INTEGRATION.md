@@ -97,7 +97,7 @@ unset MCD_MCP_TOKEN
 - 实际 `plan` 保留巨无霸，联调条件为 500–650 kcal、蛋白质至少 30 g、钠不超过 1400 mg、最多 3 种餐品；这些是软件验证设置，不是对用户的摄入建议。
 - 首个输出：巨无霸、小杯玉米杯、冰美式小杯；合计 `576 kcal / 30 g 蛋白质 / 962 mg 钠`。根目录 CLI、仓库外已安装 Skill 及浏览器报告均实际运行。
 - 原始返回、规范目录、HTML 分别保存在本地 `private-data/nutrition-verified.raw.json`、`catalog-verified.json`、`report-verified.html`，该目录不纳入版本控制。未在文档记录 Token、Authorization、会话标识、账号或请求 traceId。
-- 自动化行为测试共 44 项通过，覆盖 TOON 截断、错误行宽、引用字符、完全重复与冲突重复等边界。尚未发布 GitHub、提交报名或核验赛事资格。
+- 自动化行为测试共 44 项通过，覆盖 TOON 截断、错误行宽、引用字符、完全重复与冲突重复等边界。项目已公开发布；报名状态以 README 中的公开链接为准，赛事资格仍由组织方审核。
 
 ## 官方依据
 
