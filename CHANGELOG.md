@@ -12,3 +12,4 @@
 - 已完成官方已认证营养联调：发现空对象输入 schema，获取 160 行 TOON 九列表，按完整记录等价合并 2 行得到 158 项；冲突条目仍拒绝。官方营养计算器及餐品页核验了每份口径和单位。
 - 已用真实目录保留巨无霸并计算出合格组合，生成并检查浏览器报告；原始返回、目录和报告保存在被忽略的本地 `private-data/`，凭证不写入项目。
 - 项目已发布至 https://github.com/iRroxy/maimai-fit；仅上传白名单源码和必要文档，提交使用 GitHub no-reply 邮箱，精确联调时间不在公开材料披露。未使用 WorkBuddy；报名及审核状态以 README 中的链接为准。
+- 经参赛者本人确认规则及授权，已提交官方报名 Issue #707：https://github.com/M-China/mcd-developer-innovation-challenge/issues/707；仅包含项目名称、公开地址和技术简介，未附个人联系方式或凭证。当前等待官方校验，不宣称审核通过。

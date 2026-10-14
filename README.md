@@ -155,7 +155,7 @@ python3 -m unittest discover -s tests -v
 - [x] `mcp-config.example.json`：凭证只使用环境变量占位符；发布前仍应检查版本历史、截图与报告没有敏感信息。
 - [x] 可运行源码与 Skill；有效 Token 的官方营养调用、格式适配和真实目录配餐已执行，脱敏记录见集成文档。这是技术调用证据，不代表赛事资格审核通过。
 - [x] 个人公开 GitHub 仓库：[iRroxy/maimai-fit](https://github.com/iRroxy/maimai-fit)。发布仅包含源码与必要文档，不包含私有数据或历史凭证；参赛者本人已确认参赛权利和资格。
-- [ ] 本人确认参赛资格、阅读活动/MCP 规则；在北京时间 2026-10-25 23:59 前按官方指定 Issue 模板报名。最终 Star 数据截止北京时间 2026-10-26 00:00；不刷榜、不承诺奖项。
+- [x] 参赛者本人已确认资格及项目权利、同意官方活动规则并授权提交；报名 Issue：[官方 #707](https://github.com/M-China/mcd-developer-innovation-challenge/issues/707)。当前已提交，等待官方校验回复，不代表资格审核通过。最终 Star 数据截止北京时间 2026-10-26 00:00；不刷榜、不承诺奖项。
 
 本项目未使用 WorkBuddy、不参加其专项核验，不创建 `workbuddy.md`。专项奖励需要**真实使用 WorkBuddy 且提交真实上下文**，不能只生成文件。本地开发和安装不等于已发布或已报名；上传、接受条款和提交报名均由用户本人决定。
 
