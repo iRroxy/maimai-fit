@@ -5,17 +5,19 @@ import runpy
 import subprocess
 import sys
 
-bundled = Path(__file__).resolve().parent / "runtime"
-root = bundled if bundled.is_dir() else Path(__file__).resolve().parents[3]
+scripts = Path(__file__).resolve().parent
+bundled = scripts / "runtime"
+root = bundled if bundled.is_dir() else scripts.parents[2]
 
 candidates = [
-    Path(__file__).resolve().parent / "maimai",
-    Path(__file__).resolve().parent / "bin" / "maimai",
+    scripts / "maimai",
+    scripts / "bin" / "maimai",
     root / "target" / "release" / "maimai",
     root / "target" / "debug" / "maimai",
 ]
 for candidate in candidates:
     if candidate.is_file() and os.access(candidate, os.X_OK):
+        # Preserve the caller's cwd so relative catalog/report paths stay user-relative.
         sys.exit(subprocess.run([str(candidate), *sys.argv[1:]]).returncode)
 
 sys.path.insert(0, str(root))

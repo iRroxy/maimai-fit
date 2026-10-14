@@ -24,7 +24,7 @@ python3 RUNNER fetch --out PATH
 python3 RUNNER plan --catalog PATH --keep EXACT_NAME ...
 ```
 
-`RUNNER` 是文档符号，不是可执行命令里的字面值。安装版脚本选择旁边 `scripts/runtime/` 中的独立模块和数据；仓库版解析仓库根目录。无需 pip，要求 Python ≥3.10。不要改代码来避开失败或吞掉退出码。
+`RUNNER` 是文档符号，不是可执行命令里的字面值。入口优先使用随 Skill 携带或仓库中已编译的 Rust 二进制，否则使用 Python：安装版从旁边 `scripts/runtime/` 读取独立模块和演示数据，仓库版解析仓库根目录。Rust demo 内置合成目录；用户提供的相对目录/报告路径均相对于当前工作目录，不会切换到仓库或 Skill 目录。入口脚本无需 pip，要求 Python ≥3.10。不要改代码来避开失败或吞掉退出码。
 
 若用户明确只想看 demo，可运行 `demo`，全程标注**虚构名称与合成数据**。真实餐品请求不得用 demo 替代网络调用、补值或冒充官方结果。
 

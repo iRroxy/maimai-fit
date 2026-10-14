@@ -173,70 +173,41 @@ pub struct PlanningResult {
     pub notice: String,
 }
 
-fn combinations<'a, T>(slice: &'a [T], k: usize) -> Vec<Vec<&'a T>> {
-    let mut result = Vec::new();
-    let mut current = Vec::new();
-    fn backtrack<'a, T>(
-        slice: &'a [T],
-        start: usize,
-        k: usize,
-        current: &mut Vec<&'a T>,
-        result: &mut Vec<Vec<&'a T>>,
-    ) {
-        if current.len() == k {
-            result.push(current.clone());
-            return;
-        }
-        for i in start..slice.len() {
-            current.push(&slice[i]);
-            backtrack(slice, i + 1, k, current, result);
-            current.pop();
-        }
-    }
-    backtrack(slice, 0, k, &mut current, &mut result);
-    result
+#[derive(Clone)]
+struct DecNutrients {
+    kcal: BigDecimal,
+    protein: BigDecimal,
+    sodium: Option<BigDecimal>,
 }
 
-struct RankKey {
+impl DecNutrients {
+    fn adding(&self, other: &Self) -> Self {
+        Self {
+            kcal: &self.kcal + &other.kcal,
+            protein: &self.protein + &other.protein,
+            sodium: match (&self.sodium, &other.sodium) {
+                (Some(left), Some(right)) => Some(left + right),
+                _ => None,
+            },
+        }
+    }
+}
+
+struct Candidate<'a> {
+    totals: DecNutrients,
     distance: BigDecimal,
     added_count: usize,
-    protein: BigDecimal,
-    names: Vec<String>,
+    names: [&'a str; 3],
+    extras: [usize; 2],
 }
 
-impl PartialEq for RankKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.distance == other.distance
-            && self.added_count == other.added_count
-            && self.protein == other.protein
-            && self.names == other.names
-    }
-}
-
-impl Eq for RankKey {}
-
-impl PartialOrd for RankKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for RankKey {
+impl Candidate<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.distance.cmp(&other.distance) {
-            Ordering::Equal => {}
-            ord => return ord,
-        }
-        match self.added_count.cmp(&other.added_count) {
-            Ordering::Equal => {}
-            ord => return ord,
-        }
-        // Higher protein comes first (reverse comparison)
-        match other.protein.cmp(&self.protein) {
-            Ordering::Equal => {}
-            ord => return ord,
-        }
-        self.names.cmp(&other.names)
+        self.distance
+            .cmp(&other.distance)
+            .then_with(|| self.added_count.cmp(&other.added_count))
+            .then_with(|| other.totals.protein.cmp(&self.totals.protein))
+            .then_with(|| self.names.cmp(&other.names))
     }
 }
 
@@ -246,9 +217,10 @@ pub fn solve(
 ) -> Result<PlanningResult, PlanningError> {
     constraints.validate()?;
 
-    let mut by_name: HashMap<String, &FoodItem> = HashMap::new();
-    for food in &catalog.foods {
-        by_name.insert(casefold(&food.name), food);
+    let identities: Vec<String> = catalog.foods.iter().map(|f| casefold(&f.name)).collect();
+    let mut by_name: HashMap<&str, usize> = HashMap::new();
+    for (index, identity) in identities.iter().enumerate() {
+        by_name.insert(identity.as_str(), index);
     }
 
     let excluded: Vec<String> = constraints
@@ -257,144 +229,125 @@ pub fn solve(
         .map(|t| casefold(t.trim()))
         .collect();
 
-    let mut mandatory = Vec::new();
-    for name in &constraints.keep {
+    let mut mandatory = [0; 3];
+    for (position, name) in constraints.keep.iter().enumerate() {
         let identity = casefold(name.trim());
-        let food = by_name.get(&identity).ok_or_else(|| {
+        let index = *by_name.get(identity.as_str()).ok_or_else(|| {
             PlanningError(format!(
                 "找不到要保留的餐品：{name}；请使用目录中的精确份量名称"
             ))
         })?;
-        let food_name_cf = casefold(&food.name);
-        if excluded.iter().any(|term| food_name_cf.contains(term)) {
-            return Err(PlanningError(format!("保留与排除条件冲突：{}", food.name)));
+        if excluded.iter().any(|term| identities[index].contains(term)) {
+            return Err(PlanningError(format!(
+                "保留与排除条件冲突：{}",
+                catalog.foods[index].name
+            )));
         }
-        mandatory.push(*food);
+        mandatory[position] = index;
     }
+    let mandatory = &mandatory[..constraints.keep.len()];
 
-    let mandatory_names: HashSet<String> = mandatory.iter().map(|f| casefold(&f.name)).collect();
-
-    let available: Vec<&FoodItem> = catalog
-        .foods
+    let available: Vec<usize> = identities
         .iter()
-        .filter(|f| {
-            let cf = casefold(&f.name);
-            !mandatory_names.contains(&cf) && !excluded.iter().any(|term| cf.contains(term))
+        .enumerate()
+        .filter(|(_, identity)| {
+            !mandatory.iter().any(|&index| &identities[index] == *identity)
+                && !excluded.iter().any(|term| identity.contains(term))
         })
+        .map(|(index, _)| index)
         .collect();
 
-    // Parse food nutrients into BigDecimals
-    struct DecNutrients {
-        kcal: BigDecimal,
-        protein: BigDecimal,
-        sodium: Option<BigDecimal>,
-    }
-
-    let mut numeric: HashMap<String, DecNutrients> = HashMap::new();
-    for food in &catalog.foods {
-        let kcal = BigDecimal::from_str(&food.kcal).unwrap();
-        let protein = BigDecimal::from_str(&food.protein_g).unwrap();
-        let sodium = food
-            .sodium_mg
-            .as_ref()
-            .map(|s| BigDecimal::from_str(s).unwrap());
-        numeric.insert(
-            food.name.clone(),
-            DecNutrients {
-                kcal,
-                protein,
-                sodium,
-            },
-        );
+    // Nutrients and borrowed names share the catalog's indices.
+    let numeric: Vec<DecNutrients> = catalog
+        .foods
+        .iter()
+        .map(|food| DecNutrients {
+            kcal: BigDecimal::from_str(&food.kcal).unwrap(),
+            protein: BigDecimal::from_str(&food.protein_g).unwrap(),
+            sodium: food
+                .sodium_mg
+                .as_ref()
+                .map(|s| BigDecimal::from_str(s).unwrap()),
+        })
+        .collect();
+    let names: Vec<&str> = catalog.foods.iter().map(|food| food.name.as_str()).collect();
+    let mut mandatory_totals = DecNutrients {
+        kcal: BigDecimal::from(0),
+        protein: BigDecimal::from(0),
+        sodium: Some(BigDecimal::from(0)),
+    };
+    for &index in mandatory {
+        mandatory_totals = mandatory_totals.adding(&numeric[index]);
     }
 
     let two = BigDecimal::from(2);
     let midpoint = (&constraints.min_kcal + &constraints.max_kcal) / two;
 
-    let mut best: Vec<(RankKey, PlanItem)> = Vec::new();
+    let mut best: Vec<Candidate<'_>> = Vec::with_capacity(constraints.top);
     let mut feasible_count = 0;
     let mut examined = 0;
     let mut unknown_sodium_rejections = 0;
 
     let max_added = constraints.max_items - mandatory.len();
-
-    for added_count in 0..=max_added {
-        for extras in combinations(&available, added_count) {
-            examined += 1;
-            let mut selected = mandatory.clone();
-            for &extra in &extras {
-                selected.push(extra);
-            }
-
-            let mut kcal = BigDecimal::from(0);
-            let mut protein = BigDecimal::from(0);
-            let mut has_unknown_sodium = false;
-            let mut sodium_sum = BigDecimal::from(0);
-
-            for food in &selected {
-                let n = &numeric[&food.name];
-                kcal += &n.kcal;
-                protein += &n.protein;
-                if let Some(ref s) = n.sodium {
-                    sodium_sum += s;
-                } else {
-                    has_unknown_sodium = true;
-                }
-            }
-
-            if kcal < constraints.min_kcal || kcal > constraints.max_kcal || protein < constraints.min_protein {
-                continue;
-            }
-
-            let sodium = if has_unknown_sodium {
-                None
-            } else {
-                Some(sodium_sum)
-            };
-
-            if let Some(ref max_s) = constraints.max_sodium {
-                if sodium.is_none() {
+    let mut consider = |totals: DecNutrients, extras: [usize; 2], added_count: usize| {
+        examined += 1;
+        if totals.kcal < constraints.min_kcal
+            || totals.kcal > constraints.max_kcal
+            || totals.protein < constraints.min_protein
+        {
+            return;
+        }
+        if let Some(max_s) = &constraints.max_sodium {
+            match &totals.sodium {
+                None => {
                     unknown_sodium_rejections += 1;
-                    continue;
+                    return;
                 }
-                if sodium.as_ref().unwrap() > max_s {
-                    continue;
-                }
+                Some(sodium) if sodium > max_s => return,
+                _ => {}
             }
+        }
+        feasible_count += 1;
 
-            feasible_count += 1;
+        let distance = if totals.kcal >= midpoint {
+            &totals.kcal - &midpoint
+        } else {
+            &midpoint - &totals.kcal
+        };
+        let mut selected_names = [""; 3];
+        for (position, &index) in mandatory.iter().chain(extras[..added_count].iter()).enumerate() {
+            selected_names[position] = names[index];
+        }
+        selected_names[..mandatory.len() + added_count].sort_unstable();
+        let candidate = Candidate {
+            totals,
+            distance,
+            added_count,
+            names: selected_names,
+            extras,
+        };
 
-            let distance = if kcal >= midpoint {
-                &kcal - &midpoint
-            } else {
-                &midpoint - &kcal
-            };
-
-            let mut names: Vec<String> = selected.iter().map(|f| f.name.clone()).collect();
-            names.sort();
-
-            let rank = RankKey {
-                distance: distance.clone(),
-                added_count,
-                protein: protein.clone(),
-                names,
-            };
-
-            let candidate = PlanItem {
-                foods: selected.into_iter().cloned().collect(),
-                totals: PlanTotals {
-                    kcal: kcal.to_string(),
-                    protein_g: protein.to_string(),
-                    sodium_mg: sodium.map(|s| s.to_string()),
-                },
-                added_items: added_count,
-                target_distance_kcal: distance.to_string(),
-            };
-
-            best.push((rank, candidate));
-            best.sort_by(|a, b| a.0.cmp(&b.0));
-            if best.len() > constraints.top {
+        // Insert after equal ranks to retain the enumeration's stable tie order.
+        let position = best.partition_point(|item| item.cmp(&candidate) != Ordering::Greater);
+        if position < constraints.top {
+            if best.len() == constraints.top {
                 best.pop();
+            }
+            best.insert(position, candidate);
+        }
+    };
+
+    consider(mandatory_totals.clone(), [0; 2], 0);
+    if max_added >= 1 {
+        for &index in &available {
+            consider(mandatory_totals.adding(&numeric[index]), [index, 0], 1);
+        }
+    }
+    if max_added == 2 {
+        for (position, &first) in available[..available.len().saturating_sub(1)].iter().enumerate() {
+            let first_totals = mandatory_totals.adding(&numeric[first]);
+            for &second in &available[position + 1..] {
+                consider(first_totals.adding(&numeric[second]), [first, second], 2);
             }
         }
     }
@@ -409,7 +362,23 @@ pub fn solve(
         status: status.to_string(),
         source: catalog.source.clone(),
         constraints: constraints.as_dict(),
-        plans: best.into_iter().map(|(_, item)| item).collect(),
+        plans: best
+            .into_iter()
+            .map(|candidate| PlanItem {
+                foods: mandatory
+                    .iter()
+                    .chain(candidate.extras[..candidate.added_count].iter())
+                    .map(|&index| catalog.foods[index].clone())
+                    .collect(),
+                totals: PlanTotals {
+                    kcal: candidate.totals.kcal.to_string(),
+                    protein_g: candidate.totals.protein.to_string(),
+                    sodium_mg: candidate.totals.sodium.map(|s| s.to_string()),
+                },
+                added_items: candidate.added_count,
+                target_distance_kcal: candidate.distance.to_string(),
+            })
+            .collect(),
         search: SearchStats {
             examined,
             feasible: feasible_count,

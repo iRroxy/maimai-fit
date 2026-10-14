@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use maimai::catalog::{
-    load_catalog, normalize_tool_result, validate_catalog, CatalogDocument,
+    load_catalog, normalize_tool_result, parse_strict_json, validate_catalog, CatalogDocument,
     Diagnostics, Source, SourceKind,
 };
 use maimai::mcp::{McpClient, McpError};
@@ -28,7 +28,7 @@ struct PlanningArgs {
     #[arg(long, help = "必须保留的精确餐品名称，可重复指定不同餐品")]
     keep: Vec<String>,
 
-    #[arg(long, default_value = "", help = "排除名称包含此关键词的餐品")]
+    #[arg(long, help = "排除名称包含此关键词的餐品，可重复指定")]
     exclude: Vec<String>,
 
     #[arg(long, default_value = "450", help = "热量下限 kcal（不是健康建议）")]
@@ -95,20 +95,37 @@ enum Commands {
 }
 
 const DEMO_ANCHOR: &str = "示例鸡肉主食（一份）";
+const DEMO_CATALOG: &str = include_str!("../examples/demo.json");
+
+fn output_parent(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
 
 fn check_new_file(path: &Path) -> Result<(), PlanningError> {
     if path.exists() || path.is_symlink() {
         return Err(PlanningError(format!("不覆盖已有路径：{}", path.display())));
     }
-    if let Some(parent) = path.parent() {
-        if !parent.is_dir() {
-            return Err(PlanningError(format!(
-                "输出目录不存在：{}",
-                parent.display()
-            )));
-        }
+    let parent = output_parent(path);
+    if !parent.is_dir() {
+        return Err(PlanningError(format!(
+            "输出目录不存在：{}",
+            parent.display()
+        )));
     }
     Ok(())
+}
+
+fn output_identity(path: &Path) -> Result<PathBuf, PlanningError> {
+    let parent = output_parent(path);
+    let parent = parent.canonicalize().map_err(|_| {
+        PlanningError(format!("无法解析输出目录：{}", parent.display()))
+    })?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| PlanningError(format!("输出路径缺少文件名：{}", path.display())))?;
+    Ok(parent.join(name))
 }
 
 fn save_text(path: &Path, text: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -265,16 +282,9 @@ fn execute_plan(
         None => None,
     };
 
-    let exclude: Vec<String> = plan_args
-        .exclude
-        .iter()
-        .flat_map(|s| s.split(',').map(|p| p.trim().to_string()))
-        .filter(|s| !s.is_empty())
-        .collect();
-
     let constraints = Constraints {
         keep,
-        exclude,
+        exclude: plan_args.exclude.clone(),
         min_kcal,
         max_kcal,
         min_protein,
@@ -314,10 +324,9 @@ fn execute_capture(
     args_json: &str,
     ask_token: bool,
 ) -> Result<i32, Box<dyn std::error::Error>> {
-    let token = token_for(ask_token)?;
-    let mut client = McpClient::new(&token, "https://mcp.mcd.cn", 30.0)?;
-
     if command == "inspect" {
+        let token = token_for(ask_token)?;
+        let mut client = McpClient::new(&token, "https://mcp.mcd.cn", 30.0)?;
         let tool = client.nutrition_tool()?;
         let output = serde_json::json!({
             "name": tool.get("name"),
@@ -334,7 +343,9 @@ fn execute_capture(
 
     if let Some(raw_path) = raw_out {
         check_new_file(raw_path)?;
-        if raw_path == out_path {
+        let out_identity = output_identity(out_path)?;
+        let raw_identity = output_identity(raw_path)?;
+        if raw_identity == out_identity {
             return Err(PlanningError("原始返回与规范目录不能使用同一输出路径".into()).into());
         }
     }
@@ -346,6 +357,9 @@ fn execute_capture(
     if !args_val.is_object() {
         return Err(PlanningError("--arguments 必须是 JSON 对象".into()).into());
     }
+
+    let token = token_for(ask_token)?;
+    let mut client = McpClient::new(&token, "https://mcp.mcd.cn", 30.0)?;
 
     let result = client.call_nutrition(&args_val)?;
 
@@ -465,8 +479,8 @@ fn main() {
     let cli = Cli::parse();
     let res = match cli.command {
         Commands::Demo(args) => {
-            let demo_path = Path::new("examples").join("demo.json");
-            match load_catalog(&demo_path) {
+            let demo = parse_strict_json(DEMO_CATALOG).and_then(|value| validate_catalog(&value));
+            match demo {
                 Ok(cat) => execute_plan(&cat, &args, Some(DEMO_ANCHOR)),
                 Err(e) => {
                     eprintln!("错误：{e}");

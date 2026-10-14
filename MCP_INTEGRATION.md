@@ -18,7 +18,7 @@
 
 ## 真实验证边界（重要）
 
-**已完成使用有效凭证的官方端到端运行。** 实际 `initialize` 协商版本为 `2025-03-26`，Server 为 `mcd-mcp` / `1.0.0`；`list-nutrition-foods` 的 `inputSchema` 为 `{"properties":{},"type":"object"}`，本次以空对象调用成功。此前无凭证探测的 HTTP 403 不再是当前验证状态。
+**此前已完成使用有效凭证的官方端到端运行；以下是历史联调记录，不是当前服务可用性保证。** 当时 `initialize` 协商版本为 `2025-03-26`，Server 为 `mcd-mcp` / `1.0.0`；`list-nutrition-foods` 的 `inputSchema` 为 `{"properties":{},"type":"object"}`，以空对象调用成功。每次使用仍应以当次发现的 schema 和认证结果为准。
 
 业务返回包含 `structuredContent`，其中 `success=true`、`code=200`，`data` 为 160 行 TOON 表。已用实际 CLI 完成抓取、规范化、配餐及报告；有效凭证不写入项目。这里只证明该营养读取与配餐路径，不宣称其他业务工具、未来服务状态、赛事审核或获奖已验证。离线 demo 仍是合成数据，本项目未使用 WorkBuddy。
 
@@ -32,9 +32,14 @@
 
 CLI 不读取客户端配置文件，独立读取 `MCD_MCP_TOKEN` 或人类终端隐藏输入 `--ask-token`。优先使用后者可避免长期保存凭证：
 
+以下从仓库根目录使用 Python 入口；Rust 用户先运行 `cargo build --release --locked`，再把 `python3 -m maimai` 换成 `./target/release/maimai`。两种 CLI 都不读取 `mcp-config.example.json`。
+
 ```sh
+mkdir -p private-data
 python3 -m maimai inspect --ask-token
-python3 -m maimai fetch --ask-token --out catalog.json --raw-out nutrition.raw.json
+python3 -m maimai fetch --ask-token \
+  --out private-data/catalog.json \
+  --raw-out private-data/nutrition.raw.json
 ```
 
 `--ask-token` 供本人在交互终端输入，不是让 Agent 获得 Token 的方式。CLI 没有 `--token` 参数，不应将 Token 放进 `--arguments`。
@@ -45,7 +50,7 @@ python3 -m maimai fetch --ask-token --out catalog.json --raw-out nutrition.raw.j
 read -r -s -p 'MCP Token: ' MCD_MCP_TOKEN; printf '\n'
 export MCD_MCP_TOKEN
 python3 -m maimai inspect
-python3 -m maimai fetch --out catalog.json --raw-out nutrition.raw.json
+python3 -m maimai fetch --out private-data/catalog.json
 unset MCD_MCP_TOKEN
 ```
 
@@ -55,7 +60,7 @@ unset MCD_MCP_TOKEN
 
 1. `inspect` 初始化连接、分页发现真实 `list-nutrition-foods`，展示其输入 `inputSchema`。不调用业务工具、不显示 Token。
 2. 阅读 **当次返回 schema**。有必填属性时据此给 `fetch --arguments` 提供合法 JSON 对象；参数含义不足以确定时向用户询问。不存在必填项时默认空对象。本文没有官方实际参数样例，不假设某个字段必然存在。客户端只检查必填属性是否提供，不是完整 JSON Schema 验证器，用户/Agent 仍需遵守类型、枚举等限制。
-3. `fetch` 调用营养工具。`isError` 返回失败，不当成营养目录。输出路径已有文件时在联网前拒绝覆盖。
+3. `fetch` 先检查本地输出路径及 JSON 对象参数，再读取凭证并调用营养工具。父目录必须存在，已有文件或原始/规范输出指向同一路径时拒绝；不会为了这些本地错误先提示输入 Token。`isError` 返回失败，不当成营养目录。
 4. 如提供 `--raw-out`，成功业务调用的原始营养结果先保存到该路径；自动规范化成功后才写 `--out` 的标准目录。自动适配失败时，原始结果可用于人工/Agent 转换，绝不落地伪造的标准目录。
    原始返回文件保存的是解析后的工具结果，不是逐字节网络录包；JSON 小数以十进制字符串保存，避免浮点舍入，原有文本块保持原文。
 5. 在目录中选择精确份量名称，用 `plan --catalog ... --keep ...` 规划；报告来源和抓取时间，不能把本地缓存说成实时查询。
@@ -90,14 +95,14 @@ unset MCD_MCP_TOKEN
 
 本地原始返回与标准目录视为私有工作文件，使用权限受限的临时目录或 `private-data/`；`.gitignore` 仅防误提交，不能代替权限控制。来源备注和餐品名不得装入凭证。HTML 仅展示规划所需的数据并转义餐品文本，无网络服务，不包含认证头。公开任何报告前本人审阅并脱敏。
 
-## 本次已认证验证记录
+## 历史已认证验证记录
 
 - 实际 CLI `fetch` 退出码为 0，已完成官方已认证调用。精确采集时间仅保留在本地私有目录，不在公开材料中披露。
 - 原始返回为 160 行，合并 2 行完全相同条目后保存 158 项。每份口径、蛋白质 g、钠 mg 已按官网公开营养资料核对。
 - 实际 `plan` 保留巨无霸，联调条件为 500–650 kcal、蛋白质至少 30 g、钠不超过 1400 mg、最多 3 种餐品；这些是软件验证设置，不是对用户的摄入建议。
 - 首个输出：巨无霸、小杯玉米杯、冰美式小杯；合计 `576 kcal / 30 g 蛋白质 / 962 mg 钠`。根目录 CLI、仓库外已安装 Skill 及浏览器报告均实际运行。
 - 原始返回、规范目录、HTML 分别保存在本地 `private-data/nutrition-verified.raw.json`、`catalog-verified.json`、`report-verified.html`，该目录不纳入版本控制。未在文档记录 Token、Authorization、会话标识、账号或请求 traceId。
-- 自动化行为测试共 44 项通过，覆盖 TOON 截断、错误行宽、引用字符、完全重复与冲突重复等边界。项目已公开发布；报名状态以 README 中的公开链接为准，赛事资格仍由组织方审核。
+- 历史联调时的自动化行为测试共 44 项通过，覆盖 TOON 截断、错误行宽、引用字符、完全重复与冲突重复等边界。当前测试请按 README 的命令自行运行，不以历史数量判断完整性。项目已公开发布；报名状态以 README 中的公开链接为准，赛事资格仍由组织方审核。
 
 ## 官方依据
 

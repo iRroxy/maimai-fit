@@ -205,6 +205,166 @@ fn test_rank_prefers_fewer_changes_after_equal_calorie_distance() {
 }
 
 #[test]
+fn test_top_truncation_preserves_protein_then_name_ranking_and_full_statistics() {
+    let cat = make_catalog(vec![
+        food("保留品", "400", "20", Some("100")),
+        food("Z配菜", "150", "10", Some("20")),
+        food("A配菜", "150", "10", Some("20")),
+        food("高蛋白配菜", "150", "15", Some("20")),
+    ]);
+    let mut targets = default_targets();
+    targets.max_items = 2;
+    targets.top = 2;
+
+    let result = solve(&cat, &targets).unwrap();
+    let names: Vec<Vec<&str>> = result
+        .plans
+        .iter()
+        .map(|plan| plan.foods.iter().map(|item| item.name.as_str()).collect())
+        .collect();
+    assert_eq!(names, vec![vec!["保留品", "高蛋白配菜"], vec!["保留品", "A配菜"]]);
+    assert_eq!(result.search.examined, 4);
+    assert_eq!(result.search.feasible, 3);
+    assert_eq!(result.search.unknown_sodium_rejections, 0);
+
+    targets.top = 10;
+    let all = solve(&cat, &targets).unwrap();
+    assert_eq!(all.plans.len(), 3);
+    assert_eq!(
+        serde_json::to_value(&result.plans).unwrap(),
+        serde_json::to_value(&all.plans[..2]).unwrap()
+    );
+    assert_eq!(all.search.examined, result.search.examined);
+    assert_eq!(all.search.feasible, result.search.feasible);
+}
+
+#[test]
+fn test_pair_name_ties_use_sorted_names_without_reordering_output_foods() {
+    let cat = make_catalog(vec![
+        food("M", "400", "20", Some("100")),
+        food("Z", "100", "10", Some("10")),
+        food("A", "100", "10", Some("10")),
+        food("Y", "100", "10", Some("10")),
+        food("B", "100", "10", Some("10")),
+    ]);
+    let mut targets = default_targets();
+    targets.keep = vec!["M".into()];
+    targets.min_kcal = BigDecimal::from(550);
+
+    let result = solve(&cat, &targets).unwrap();
+    let names: Vec<Vec<&str>> = result
+        .plans
+        .iter()
+        .map(|plan| plan.foods.iter().map(|item| item.name.as_str()).collect())
+        .collect();
+    assert_eq!(
+        names,
+        vec![vec!["M", "A", "B"], vec!["M", "A", "Y"], vec!["M", "Z", "A"]]
+    );
+    assert_eq!(result.search.examined, 11);
+    assert_eq!(result.search.feasible, 6);
+    assert_eq!(result.search.unknown_sodium_rejections, 0);
+    for plan in result.plans {
+        assert_eq!(plan.added_items, 2);
+        assert_eq!(plan.target_distance_kcal, "0");
+        assert_eq!(plan.totals.kcal, "600");
+        assert_eq!(plan.totals.protein_g, "40");
+        assert_eq!(plan.totals.sodium_mg.as_deref(), Some("120"));
+    }
+}
+
+#[test]
+fn test_multiple_keeps_preserve_request_order_and_exact_decimal_totals() {
+    let cat = make_catalog(vec![
+        food("A", "200.1", "10.05", Some("100.1")),
+        food("Z", "300.2", "20.10", Some("200.2")),
+        food("C", "40.3", "1.25", Some("30.3")),
+        food("B", "40.3", "1.25", Some("20.3")),
+    ]);
+    let mut targets = default_targets();
+    targets.keep = vec!["Z".into(), "A".into()];
+    targets.min_kcal = BigDecimal::from_str("500.3").unwrap();
+    targets.max_kcal = BigDecimal::from_str("580.9").unwrap();
+
+    let result = solve(&cat, &targets).unwrap();
+    let names: Vec<Vec<&str>> = result
+        .plans
+        .iter()
+        .map(|plan| plan.foods.iter().map(|item| item.name.as_str()).collect())
+        .collect();
+    assert_eq!(names, vec![vec!["Z", "A", "B"], vec!["Z", "A", "C"], vec!["Z", "A"]]);
+    assert_eq!(result.search.examined, 3);
+    assert_eq!(result.search.feasible, 3);
+    assert_eq!(result.plans[0].totals.kcal, "540.6");
+    assert_eq!(result.plans[0].totals.protein_g, "31.40");
+    assert_eq!(result.plans[0].totals.sodium_mg.as_deref(), Some("320.6"));
+    assert_eq!(result.plans[2].totals.kcal, "500.3");
+    assert_eq!(result.plans[2].totals.protein_g, "30.15");
+    assert_eq!(result.plans[2].totals.sodium_mg.as_deref(), Some("300.3"));
+    assert_eq!(result.plans[2].added_items, 0);
+}
+
+#[test]
+fn test_unknown_sodium_statistics_count_only_nutritionally_eligible_candidates() {
+    let cat = make_catalog(vec![
+        food("保留品", "400", "25", Some("100")),
+        food("已知钠", "100", "5", Some("50")),
+        food("未知钠", "100", "5", None),
+        food("蛋白不足的未知钠", "100", "0", None),
+        food("钠超标", "100", "5", Some("1000")),
+        food("排除的未知钠", "100", "5", None),
+    ]);
+    let mut targets = default_targets();
+    targets.exclude = vec!["排除".into()];
+    targets.max_items = 2;
+    targets.max_sodium = Some(BigDecimal::from(200));
+
+    let result = solve(&cat, &targets).unwrap();
+    assert_eq!(result.plans.len(), 1);
+    assert_eq!(result.plans[0].foods[1].name, "已知钠");
+    assert_eq!(result.search.examined, 5);
+    assert_eq!(result.search.feasible, 1);
+    assert_eq!(result.search.unknown_sodium_rejections, 1);
+
+    targets.max_sodium = None;
+    let unconstrained = solve(&cat, &targets).unwrap();
+    assert_eq!(unconstrained.search.examined, 5);
+    assert_eq!(unconstrained.search.feasible, 3);
+    assert_eq!(unconstrained.search.unknown_sodium_rejections, 0);
+    let unknown = unconstrained
+        .plans
+        .iter()
+        .find(|plan| plan.foods[1].name == "未知钠")
+        .unwrap();
+    assert_eq!(unknown.totals.sodium_mg, None);
+}
+
+#[test]
+fn test_unknown_mandatory_sodium_propagates_through_all_combination_sizes() {
+    let cat = make_catalog(vec![
+        food("保留品", "500", "35", None),
+        food("A", "50", "1", Some("100")),
+        food("B", "60", "1", Some("100")),
+    ]);
+    let mut targets = default_targets();
+    targets.top = 10;
+
+    let result = solve(&cat, &targets).unwrap();
+    assert_eq!(result.plans.len(), 4);
+    assert_eq!(result.search.examined, 4);
+    assert_eq!(result.search.feasible, 4);
+    assert!(result.plans.iter().all(|plan| plan.totals.sodium_mg.is_none()));
+
+    targets.max_sodium = Some(BigDecimal::from(1000));
+    let constrained = solve(&cat, &targets).unwrap();
+    assert_eq!(constrained.status, "infeasible");
+    assert!(constrained.plans.is_empty());
+    assert_eq!(constrained.search.examined, 4);
+    assert_eq!(constrained.search.feasible, 0);
+    assert_eq!(constrained.search.unknown_sodium_rejections, 4);
+}
+
+#[test]
 fn test_invalid_targets_rejected() {
     let cat = make_catalog(vec![food("保留品", "500", "35", Some("100"))]);
 
