@@ -13,3 +13,7 @@
 - 已用真实目录保留巨无霸并计算出合格组合，生成并检查浏览器报告；原始返回、目录和报告保存在被忽略的本地 `private-data/`，凭证不写入项目。
 - 项目已发布至 https://github.com/iRroxy/maimai-fit；仅上传白名单源码和必要文档，提交使用 GitHub no-reply 邮箱，精确联调时间不在公开材料披露。未使用 WorkBuddy；报名及审核状态以 README 中的链接为准。
 - 经参赛者本人确认规则及授权，已提交官方报名 Issue #707：https://github.com/M-China/mcd-developer-innovation-challenge/issues/707；仅包含项目名称、公开地址和技术简介，未附个人联系方式或凭证。当前等待官方校验，不宣称审核通过。
+- 新增 Rust 原生完整实现与单二进制支持：
+  - 基于 `clap` + `bigdecimal` + `ureq` + `serde` 实现与 Python 版 100% 行为契约对齐的全部模块（Catalog 规范化与 TOON/MD 解析、高精度组合规划、安全 HTML 报告、Streamable HTTP MCP 客户端及全套 CLI 子命令）。
+  - 对应 44 个行为测试用例全部移植至 Rust 测试套件并通过，耗时从 9.6s 降低至 0.1s。
+  - Skill 入口脚本 `run.py` 优先透明调用本地 Rust 二进制，未编译时无缝回退至纯 Python 零依赖模式。

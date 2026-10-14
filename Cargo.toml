@@ -1,0 +1,27 @@
+[package]
+name = "maimai-fit"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "maimai"
+path = "src/lib.rs"
+
+[[bin]]
+name = "maimai"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+rust_decimal = { version = "1.36", features = ["serde-str"] }
+bigdecimal = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+ureq = { version = "2.10", features = ["json", "tls"] }
+url = "2.5"
+rpassword = "7.3"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"

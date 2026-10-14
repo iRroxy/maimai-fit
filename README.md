@@ -18,12 +18,23 @@
 
 ## 1. 离线体验：无需 Token、无需 pip
 
-要求 Python **3.10 或以上**。取得项目后，在项目根目录运行：
+本项目提供 **零外部依赖 Python 实现** 与 **高性能 Rust 单二进制实现**，两者行为 100% 对齐，可按需选用。
+
+### Python 运行（要求 Python ≥ 3.10）
 
 ```sh
 python3 -m maimai demo
 python3 -m maimai demo --keep '示例鸡肉主食（一份）' --min-kcal 450 --max-kcal 650 --min-protein 30 --max-sodium 1400 --top 3
 python3 -m maimai demo --html report.html
+```
+
+### Rust 运行（单二进制独立运行，极致性能）
+
+```sh
+cargo build --release
+./target/release/maimai demo
+./target/release/maimai demo --keep '示例鸡肉主食（一份）' --min-kcal 450 --max-kcal 650 --min-protein 30 --max-sodium 1400 --top 3
+./target/release/maimai demo --html report.html
 ```
 
 `--html` 生成可直接在浏览器打开的自包含静态报告，包含来源、条件、逐项数字、总计和限制说明。无需 Web 服务或前端依赖，不包含 Token。不要重复使用已有输出路径；保留或自行移走旧文件后再生成。
@@ -117,7 +128,11 @@ python3 -m maimai plan --catalog catalog.json \
 开发者可运行行为测试：
 
 ```sh
+# Python 行为测试（44 个测试）
 python3 -m unittest discover -s tests -v
+
+# Rust 行为测试（对应 44 个测试用例，毫秒级验证）
+cargo test
 ```
 
 
