@@ -12,7 +12,8 @@
 - 已完成官方已认证营养联调：发现空对象输入 schema，获取 160 行 TOON 九列表，按完整记录等价合并 2 行得到 158 项；冲突条目仍拒绝。官方营养计算器及餐品页核验了每份口径和单位。
 - 已用真实目录保留巨无霸并计算出合格组合，生成并检查浏览器报告；原始返回、目录和报告保存在被忽略的本地 `private-data/`，凭证不写入项目。
 - 项目已发布至 https://github.com/iRroxy/maimai-fit；仅上传白名单源码和必要文档，提交使用 GitHub no-reply 邮箱，精确联调时间不在公开材料披露。未使用 WorkBuddy；报名及审核状态以 README 中的链接为准。
-- 经参赛者本人确认规则及授权，已提交官方报名 Issue #707：https://github.com/M-China/mcd-developer-innovation-challenge/issues/707；仅包含项目名称、公开地址和技术简介，未附个人联系方式或凭证。当前等待官方校验，不宣称审核通过。
+- 经参赛者本人确认规则及授权，已提交官方报名 Issue #707：https://github.com/M-China/mcd-developer-innovation-challenge/issues/707 ；官方系统已自动核验通过并回复“您的作品已成功参赛”，项目正式进入比赛流程。
+- 完善参赛合规文档：在 README 中显式补充“目标用户”独立章节，与参赛规则要求的四要素（项目介绍、安装方法、使用示例、目标用户）严格对应。
 - 新增 Rust 原生完整实现与单二进制支持：
   - 基于 `clap` + `bigdecimal` + `ureq` + `serde` 实现与 Python 版 100% 行为契约对齐的全部模块（Catalog 规范化与 TOON/MD 解析、高精度组合规划、安全 HTML 报告、Streamable HTTP MCP 客户端及全套 CLI 子命令）。
   - 对应 44 个行为测试用例全部移植至 Rust 测试套件并通过，耗时从 9.6s 降低至 0.1s。
