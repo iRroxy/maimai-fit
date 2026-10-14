@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+!.env.example
+mcp-config.local.json
+mcp.local.json
+catalog.json
+nutrition.raw.json
+report.html
+demo-report.html
+private-data/

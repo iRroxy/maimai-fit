@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "source": {
+    "kind": "demo",
+    "note": "全部名称和数值均为合成测试数据，不是麦当劳餐品、价格或营养信息。"
+  },
+  "foods": [
+    {"name": "示例鸡肉主食（一份）", "kcal": 410, "protein_g": 25, "sodium_mg": 650},
+    {"name": "示例小份配菜（一份）", "kcal": 90, "protein_g": 5, "sodium_mg": 120},
+    {"name": "示例蛋白配菜（一份）", "kcal": 130, "protein_g": 12, "sodium_mg": 240},
+    {"name": "示例蔬菜杯（一份）", "kcal": 70, "protein_g": 2, "sodium_mg": 20},
+    {"name": "示例奶饮（一杯）", "kcal": 110, "protein_g": 7, "sodium_mg": 70},
+    {"name": "示例无糖饮料（一杯）", "kcal": 0, "protein_g": 0, "sodium_mg": 0},
+    {"name": "示例甜点（一份）", "kcal": 220, "protein_g": 3, "sodium_mg": null}
+  ]
+}
