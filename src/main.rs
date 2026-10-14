@@ -23,7 +23,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug)]
 struct PlanningArgs {
     #[arg(long, help = "必须保留的精确餐品名称，可重复指定不同餐品")]
     keep: Vec<String>,
@@ -260,35 +260,20 @@ fn show_result(result: &PlanningResult) {
 
 fn execute_plan(
     catalog: &CatalogDocument,
-    plan_args: &PlanningArgs,
-    default_keep: Option<&str>,
+    plan_args: PlanningArgs,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     if let Some(ref html_path) = plan_args.html {
         check_new_file(html_path)?;
     }
 
-    let mut keep = plan_args.keep.clone();
-    if keep.is_empty() {
-        if let Some(anchor) = default_keep {
-            keep.push(anchor.to_string());
-        }
-    }
-
-    let min_kcal = parse_number(&plan_args.min_kcal, "最低热量")?;
-    let max_kcal = parse_number(&plan_args.max_kcal, "最高热量")?;
-    let min_protein = parse_number(&plan_args.min_protein, "最低蛋白质")?;
-    let max_sodium = match &plan_args.max_sodium {
-        Some(s) => Some(parse_number(s, "最高钠")?),
-        None => None,
-    };
-
     let constraints = Constraints {
-        keep,
-        exclude: plan_args.exclude.clone(),
-        min_kcal,
-        max_kcal,
-        min_protein,
-        max_sodium,
+        keep: plan_args.keep,
+        exclude: plan_args.exclude,
+        min_kcal: parse_number(&plan_args.min_kcal, "最低热量")?,
+        max_kcal: parse_number(&plan_args.max_kcal, "最高热量")?,
+        min_protein: parse_number(&plan_args.min_protein, "最低蛋白质")?,
+        max_sodium: plan_args.max_sodium.as_deref()
+            .map(|s| parse_number(s, "最高钠")).transpose()?,
         max_items: plan_args.max_items,
         top: plan_args.top,
     };
@@ -300,45 +285,24 @@ fn execute_plan(
     }
 
     if plan_args.json {
-        let serialized = serde_json::to_string_pretty(&result)?;
-        println!("{serialized}");
+        println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         show_result(&result);
     }
 
     if let Some(ref html_path) = plan_args.html {
-        eprintln!("HTML 报告：{}", html_path.canonicalize().unwrap_or(html_path.clone()).display());
+        eprintln!("HTML 报告：{}", html_path.canonicalize().unwrap_or_else(|_| html_path.clone()).display());
     }
 
-    if result.status == "ok" {
-        Ok(0)
-    } else {
-        Ok(2)
-    }
+    Ok(if result.status == "ok" { 0 } else { 2 })
 }
 
-fn execute_capture(
-    command: &str,
-    out: Option<&Path>,
+fn execute_fetch(
+    out_path: &Path,
     raw_out: Option<&Path>,
     args_json: &str,
     ask_token: bool,
 ) -> Result<i32, Box<dyn std::error::Error>> {
-    if command == "inspect" {
-        let token = token_for(ask_token)?;
-        let mut client = McpClient::new(&token, "https://mcp.mcd.cn", 30.0)?;
-        let tool = client.nutrition_tool()?;
-        let output = serde_json::json!({
-            "name": tool.get("name"),
-            "inputSchema": tool.get("inputSchema").unwrap_or(&Value::Null),
-            "description": tool.get("description").unwrap_or(&Value::Null),
-        });
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(0);
-    }
-
-    // fetch
-    let out_path = out.ok_or_else(|| PlanningError("缺少 --out 路径".into()))?;
     check_new_file(out_path)?;
 
     if let Some(raw_path) = raw_out {
@@ -475,51 +439,37 @@ fn dirs_home() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn main() {
-    let cli = Cli::parse();
-    let res = match cli.command {
-        Commands::Demo(args) => {
-            let demo = parse_strict_json(DEMO_CATALOG).and_then(|value| validate_catalog(&value));
-            match demo {
-                Ok(cat) => execute_plan(&cat, &args, Some(DEMO_ANCHOR)),
-                Err(e) => {
-                    eprintln!("错误：{e}");
-                    std::process::exit(1);
-                }
+fn run(command: Commands) -> Result<i32, Box<dyn std::error::Error>> {
+    match command {
+        Commands::Demo(mut args) => {
+            if args.keep.is_empty() {
+                args.keep.push(DEMO_ANCHOR.into());
             }
+            let catalog = validate_catalog(&parse_strict_json(DEMO_CATALOG)?)?;
+            execute_plan(&catalog, args)
         }
-        Commands::Plan { catalog, args } => {
-            match load_catalog(&catalog) {
-                Ok(cat) => execute_plan(&cat, &args, None),
-                Err(e) => {
-                    eprintln!("错误：{e}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        Commands::Fetch {
-            out,
-            raw_out,
-            arguments,
-            ask_token,
-        } => execute_capture(
-            "fetch",
-            Some(&out),
-            raw_out.as_deref(),
-            &arguments,
-            ask_token,
-        ),
+        Commands::Plan { catalog, args } => execute_plan(&load_catalog(&catalog)?, args),
+        Commands::Fetch { out, raw_out, arguments, ask_token } =>
+            execute_fetch(&out, raw_out.as_deref(), &arguments, ask_token),
         Commands::Inspect { ask_token } => {
-            execute_capture("inspect", None, None, "{}", ask_token)
+            let token = token_for(ask_token)?;
+            let mut client = McpClient::new(&token, "https://mcp.mcd.cn", 30.0)?;
+            let tool = client.nutrition_tool()?;
+            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                "name": tool.get("name"),
+                "inputSchema": tool.get("inputSchema").unwrap_or(&Value::Null),
+                "description": tool.get("description").unwrap_or(&Value::Null),
+            }))?);
+            Ok(0)
         }
         Commands::Install { to } => execute_install(to.as_deref()),
-    };
-
-    match res {
-        Ok(code) => std::process::exit(code),
-        Err(e) => {
-            eprintln!("错误：{e}");
-            std::process::exit(1);
-        }
     }
+}
+
+fn main() {
+    let code = run(Cli::parse().command).unwrap_or_else(|e| {
+        eprintln!("错误：{e}");
+        1
+    });
+    std::process::exit(code);
 }
