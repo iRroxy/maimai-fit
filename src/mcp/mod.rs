@@ -556,7 +556,7 @@ impl McpClient {
     }
 
     pub fn close(&mut self) {
-        if self.initialized.is_some() && self.session.is_some() {
+        if self.session.is_some() {
             let _ = self.request(None, None, false, "DELETE");
         }
         self.session = None;

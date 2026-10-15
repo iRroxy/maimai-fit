@@ -2,12 +2,22 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use parking_lot::Mutex;
 use tempfile::tempdir;
 
 const BIN: &str = env!("CARGO_BIN_EXE_maimai");
 const DEMO_KEEP: &str = "示例鸡肉主食（一份）";
 
+// A concurrently forked child can retain a copied executable's writable descriptor until exec.
+static EXECUTABLE_IO: Mutex<()> = Mutex::new(());
+
+fn copy_binary(destination: &Path) {
+    let _guard = EXECUTABLE_IO.lock();
+    fs::copy(BIN, destination).unwrap();
+}
+
 fn run(binary: &Path, cwd: &Path, args: &[&str]) -> Output {
+    let _guard = EXECUTABLE_IO.lock();
     Command::new(binary)
         .args(args)
         .current_dir(cwd)
@@ -48,7 +58,7 @@ fn assert_input_error(output: &Output, message: &str) {
 fn standalone_demo_embeds_catalog_and_writes_bare_html_without_overwriting() {
     let workspace = tempdir().unwrap();
     let binary = workspace.path().join("standalone-maimai");
-    fs::copy(BIN, &binary).unwrap();
+    copy_binary(&binary);
     let cwd = workspace.path().join("caller");
     fs::create_dir(&cwd).unwrap();
 
@@ -68,30 +78,32 @@ fn standalone_demo_embeds_catalog_and_writes_bare_html_without_overwriting() {
 #[test]
 fn installed_rust_skill_keeps_relative_catalog_and_html_in_caller_cwd() {
     let workspace = tempdir().unwrap();
-    let installed = workspace.path().join("installed-skill");
-    let output = cli(
-        Path::new(env!("CARGO_MANIFEST_DIR")),
-        &["install", "--to", installed.to_str().unwrap()],
-    );
-    assert_exit(&output, 0);
-    let scripts = installed.join("scripts");
-    // Use this build, not an unrelated release binary the installer may find.
-    fs::copy(BIN, scripts.join("maimai")).unwrap();
-    // No fallback runtime is available: these calls must exercise Rust.
-    fs::remove_dir_all(scripts.join("runtime")).unwrap();
+    let installed = workspace.path().join("nested").join("installed-skill");
     let caller = workspace.path().join("caller");
     fs::create_dir(&caller).unwrap();
-    let runner = scripts.join("run.py");
-    let invoke = |args: &[&str]| {
-        Command::new("python3")
-            .arg(&runner)
-            .args(args)
-            .current_dir(&caller)
-            .env_remove("MCD_MCP_TOKEN")
-            .stdin(Stdio::null())
-            .output()
-            .expect("run installed Skill launcher")
-    };
+    let running_binary = workspace.path().join(format!("standalone{}", std::env::consts::EXE_SUFFIX));
+    copy_binary(&running_binary);
+    // A decoy release tree must never be used instead of the running executable.
+    fs::create_dir_all(caller.join("target/release")).unwrap();
+    let decoy = caller.join("target/release").join(format!("maimai{}", std::env::consts::EXE_SUFFIX));
+    fs::write(&decoy, "not the running binary").unwrap();
+    let output = run(&running_binary, &caller, &["install", "--to", installed.to_str().unwrap()]);
+    assert_exit(&output, 0);
+    let scripts = installed.join("scripts");
+    let runner = scripts.join(format!("maimai{}", std::env::consts::EXE_SUFFIX));
+    assert!(!caller.join("skills").exists());
+    fs::remove_file(&running_binary).unwrap();
+    let invoke = |args: &[&str]| run(&runner, &caller, args);
+
+    let refused = invoke(&["install", "--to", installed.to_str().unwrap()]);
+    assert_input_error(&refused, "安装目标已存在");
+    assert_eq!(fs::read(&decoy).unwrap(), b"not the running binary");
+
+    // Reinstallation is also standalone: its Skill and executable are embedded/self-copied.
+    let second = caller.join("second-skill");
+    assert_exit(&invoke(&["install", "--to", "second-skill"]), 0);
+    let reinstalled = second.join("scripts").join(format!("maimai{}", std::env::consts::EXE_SUFFIX));
+    assert_eq!(result(&run(&reinstalled, &caller, &["demo", "--json"]))["plans"][0]["totals"]["kcal"], "540");
 
     let demo = invoke(&["demo", "--json", "--html", "demo.html"]);
     assert_eq!(result(&demo)["source"]["kind"], "demo");
@@ -122,6 +134,32 @@ fn installed_rust_skill_keeps_relative_catalog_and_html_in_caller_cwd() {
 }
 
 #[test]
+fn install_refuses_existing_files_and_invalid_parent_without_touching_them() {
+    let directory = tempdir().unwrap();
+    fs::write(directory.path().join("existing"), "preserve").unwrap();
+    assert_input_error(&cli(directory.path(), &["install", "--to", "existing"]), "安装目标已存在");
+    assert_exit(&cli(directory.path(), &["install", "--to", "existing/child/skill"]), 1);
+    assert_eq!(fs::read_to_string(directory.path().join("existing")).unwrap(), "preserve");
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn install_refuses_existing_and_dangling_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempdir().unwrap();
+    fs::create_dir(directory.path().join("real")).unwrap();
+    for (name, target) in [("existing", "real"), ("dangling", "absent")] {
+        symlink(target, directory.path().join(name)).unwrap();
+        assert_input_error(&cli(directory.path(), &["install", "--to", name]), "安装目标已存在");
+        assert_eq!(fs::read_link(directory.path().join(name)).unwrap(), Path::new(target));
+    }
+    assert_eq!(fs::read_dir(directory.path().join("real")).unwrap().count(), 0);
+    assert!(!directory.path().join("absent").exists());
+}
+
+#[test]
 fn fetch_rejects_local_paths_and_json_before_credentials() {
     let workspace = tempdir().unwrap();
     let cwd = workspace.path();
@@ -143,7 +181,7 @@ fn fetch_rejects_local_paths_and_json_before_credentials() {
     ]);
     assert_input_error(&same_relative, "不能使用同一输出路径");
 
-    for arguments in ["{", "{} trailing", "[]", "null", "true"] {
+    for arguments in ["{", "{} trailing", "[]", "null", "true", "{\"x\":1,\"x\":2}", "{\"x\":NaN}", "{\"x\":Infinity}"] {
         let output = cli(cwd, &[
             "fetch", "--out", "catalog.json", "--arguments", arguments, "--ask-token",
         ]);

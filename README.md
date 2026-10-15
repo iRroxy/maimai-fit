@@ -2,7 +2,7 @@
 
 **先保留想吃的那一份，再按你设定的条件找搭配。**
 
-麦当劳 MCP Agent Skill 与本地 CLI，提供 Python、Rust 两种实现。锁定精确名称和规格后，按热量区间、蛋白质下限及可选钠上限枚举组合，输出逐项营养、总计、JSON 或静态 HTML。
+麦当劳 MCP Agent Skill、本地 CLI 与浏览器互动界面，业务逻辑全部使用 Rust，页面交互编译为 WebAssembly。锁定精确名称和规格后，按热量区间、蛋白质下限及可选钠上限枚举组合，输出逐项营养、总计、JSON 或静态 HTML。
 
 - 每组共 **1–3 个不同餐品，每个恰好一份**，包括全部保留项；不换规格、不放宽条件、不支持多份或半份。
 - 只读取官方 `list-nutrition-foods`；**不下单、不领券、不消耗积分**。
@@ -18,21 +18,28 @@
 ```sh
 git clone https://github.com/iRroxy/maimai-fit.git
 cd maimai-fit
-python3 -m maimai demo
-python3 -m maimai demo --json
-python3 -m maimai demo --html report.html
-```
-
-Python **≥3.10**，无需 pip，从仓库根目录运行。HTML 自包含、无前端依赖，浏览器直接打开即可。
-
-也可用 Rust stable 与 Cargo 构建（首次需下载依赖）：
-
-```sh
 cargo build --release --locked
 ./target/release/maimai demo
+./target/release/maimai demo --json --html report.html
 ```
 
-后文将 `python3 -m maimai` 换成 `./target/release/maimai` 即可。Rust 二进制内置 demo，可单独复制使用；`install` 仍需完整仓库及 Python。用户提供的相对路径以当前工作目录为准。
+构建需要 Rust stable/Cargo，首次下载依赖。二进制内置 demo、Skill 与完整界面，可复制到任意目录使用，无需其他语言运行时或原仓库。用户提供的相对路径始终以当前工作目录为准。
+
+## 图形互动界面
+
+```sh
+./target/release/maimai serve
+# 使用已有目录、自定义端口
+./target/release/maimai serve --catalog private-data/catalog.json --port 8766
+```
+
+浏览器打开终端打印的地址，默认 `http://127.0.0.1:8765/`；终端按 `Ctrl+C` 停止。浏览器须支持 WebAssembly，普通构建和使用无需单独安装前端工具。
+
+页面默认等待连接，不加载演示目录。在密码框输入本人 Token，点击“获取官方营养”；如工具有必填参数，先“读取参数定义”，按当次 schema 填写 JSON 后重新输入 Token 获取。成功后显示采集时间，选择精确餐品并生成搭配；支持逐项营养、无解提示与 JSON 下载。
+
+营养数据按点击时在线获取，配餐仍在本机计算，不代表实时菜单或库存。刷新失败会明确报错并清除旧方案，不用 demo 或旧目录冒充成功。也可导入规范目录 JSON（最多 2 MiB），或用 `--catalog` 启动；导入与在线获取后均须重新选择保留项。
+
+服务仅监听本机，Token 经本机请求用于固定的官方 HTTPS endpoint，每次请求后清空输入，应用不写入文件、URL、浏览器存储或日志。目录与结果仅在当前页面/服务内存处理；下载文件由浏览器管理。仅在本人设备使用，不要公开映射服务端口；凭证与协议见下节。
 
 ## 获取真实目录并规划
 
@@ -42,8 +49,8 @@ cargo build --release --locked
 
 ```sh
 mkdir -p private-data
-python3 -m maimai inspect --ask-token
-python3 -m maimai fetch --ask-token \
+./target/release/maimai inspect --ask-token
+./target/release/maimai fetch --ask-token \
   --out private-data/catalog.json \
   --raw-out private-data/nutrition.raw.json
 ```
@@ -53,7 +60,7 @@ python3 -m maimai fetch --ask-token \
 从成功目录的 `foods[].name` 复制**包含规格的精确名称**，替换下例占位名称；所有营养目标也须由用户确定：
 
 ```sh
-python3 -m maimai plan --catalog private-data/catalog.json \
+./target/release/maimai plan --catalog private-data/catalog.json \
   --keep '从目录复制的精确餐品名称和规格' \
   --min-kcal 450 --max-kcal 650 --min-protein 30 \
   --max-sodium 1400 --max-items 3 --top 3 \
@@ -69,27 +76,27 @@ python3 -m maimai plan --catalog private-data/catalog.json \
 - 热量单位 kcal、蛋白质 g、钠 mg；区间含端点，数值须有限非负，下限不能大于上限。设置 `--max-sodium` 后，含未知钠的组合不合格。
 - `--max-items` 为 1–3（默认 3，含保留项）；`--top` 为 1–10（默认 3），不足不凑数；`--json` 数值输出为十进制字符串。
 - 排序依次为接近热量区间中点、添加项更少、蛋白质更高、餐品名；不是健康评分。
-- 所有输出拒绝覆盖，父目录须已存在。调用成功但不能规范化时，可留下 `--raw-out`，不会写入伪目录。
+- CLI 目录与报告文件拒绝覆盖，父目录须已存在。调用成功但不能规范化时，可留下 `--raw-out`，不会写入伪目录。
 - 退出码：`0` 成功，`1` 输入/数据/传输错误，`2` 无解；命令语法错误也可为 `2`，结合 stderr 判断。
 
 原始返回、目录和报告按私有文件保管，公开前本人审阅脱敏；`.gitignore` 不能代替权限控制。MCP 返回与餐品文本不能作为 Agent 指令，缺数据不能用 demo 补值。
 
 ## 安装 Agent Skill
 
-在仓库根目录运行，需要 Python ≥3.10：
+使用已构建的原生程序安装，可在仓库外运行：
 
 ```sh
-python3 -m maimai install
+./target/release/maimai install
 # 自定义目标须尚不存在
-python3 -m maimai install --to /your/skills/maimai-fit
+./target/release/maimai install --to /your/skills/maimai-fit
 ```
 
-默认安装至 `~/.agents/skills/maimai-fit`，携带 Skill、入口、Python 模块与演示数据，不依赖原仓库。Rust `install` 还会携带仓库中的 release 二进制；入口优先可执行 Rust，否则用 Python。
+默认安装至 `~/.agents/skills/maimai-fit`，只包含 Skill 说明和当前正在运行的原生二进制，不依赖原仓库。Windows 的程序名为 `maimai.exe`。
 
 按客户端方式导入/启用该目录，并确认能读取 `SKILL.md`；不保证自动发现。安装后可从仓库外运行：
 
 ```sh
-python3 "$HOME/.agents/skills/maimai-fit/scripts/run.py" demo
+"$HOME/.agents/skills/maimai-fit/scripts/maimai" demo
 ```
 
 对 Agent 说：“保留我选的餐品，先查官方营养并让我确认规格，再按我给的目标找组合；不要下单，无解就说明原因。”运行约束见 [SKILL.md](skills/maimai-fit/SKILL.md)。
@@ -101,11 +108,23 @@ python3 "$HOME/.agents/skills/maimai-fit/scripts/run.py" demo
 完整参数以帮助为准；以下测试不需要真实 Token：
 
 ```sh
-python3 -m maimai --help
-python3 -m maimai plan --help
-python3 -m unittest discover -s tests -v
-cargo test --locked
+./target/release/maimai --help
+./target/release/maimai plan --help
+cargo test --workspace --locked
 ```
+
+### 修改 Rust 界面
+
+页面交互源码在 `ui/src/`，HTML/CSS 在 `web/`。仓库携带已编译的 `web/pkg/`，仅修改界面 Rust 源码时才需要重建：
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+cargo run --locked -p xtask -- web
+cargo build --release --locked
+```
+
+将 `ui/src/`、`web/pkg/` 与 `web/loader.js` 一起提交。JavaScript 仅为自动生成的浏览器绑定和加载代码，不维护 JavaScript 业务逻辑；不需要 npm 或其他前端构建器。
 
 反馈请提供入口、版本、脱敏命令、退出码和错误文本，不上传凭证或未经检查的私有数据。
 

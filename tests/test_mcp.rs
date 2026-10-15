@@ -249,11 +249,11 @@ fn test_auth_error_never_quotes_remote_body_or_credentials() {
 
 #[test]
 fn test_redirect_does_not_contact_target_with_bearer() {
-    let target_received = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let target_received = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let target_received_clone = target_received.clone();
 
     let target_server = TestServer::new(Arc::new(move |_method, _msg, headers| {
-        target_received_clone.lock().unwrap().push(headers.clone());
+        target_received_clone.lock().push(headers.clone());
         (200, vec![], vec![])
     }));
 
@@ -264,7 +264,7 @@ fn test_redirect_does_not_contact_target_with_bearer() {
 
     let mut client = McpClient::new(TOKEN, &redirect_server.endpoint, 2.0).unwrap();
     assert!(client.initialize().is_err());
-    assert!(target_received.lock().unwrap().is_empty());
+    assert!(target_received.lock().is_empty());
 }
 
 #[test]
@@ -320,12 +320,12 @@ fn test_session_cannot_change_midstream() {
 
 #[test]
 fn test_pagination_repeated_cursor_fails() {
-    let pages = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let pages = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let pages_clone = pages.clone();
 
     let server = TestServer::new(Arc::new(move |method, msg, headers| {
         if method == "POST" && msg.and_then(|m| m.get("method")) == Some(&json!("tools/list")) {
-            pages_clone.lock().unwrap().push(msg.and_then(|m| m.get("params")).cloned());
+            pages_clone.lock().push(msg.and_then(|m| m.get("params")).cloned());
             let id = msg.unwrap().get("id").cloned().unwrap();
             return json_reply(
                 200,
@@ -342,12 +342,12 @@ fn test_pagination_repeated_cursor_fails() {
 
     let mut client = McpClient::new(TOKEN, &server.endpoint, 2.0).unwrap();
     assert!(client.nutrition_tool().is_err());
-    assert_eq!(pages.lock().unwrap().len(), 2);
+    assert_eq!(pages.lock().len(), 2);
 }
 
 #[test]
 fn test_discovered_required_fields_gate_calls_without_guessing() {
-    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let calls = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let calls_clone = calls.clone();
 
     let server = TestServer::new(Arc::new(move |method, msg, headers| {
@@ -386,7 +386,7 @@ fn test_discovered_required_fields_gate_calls_without_guessing() {
             );
         }
         if method == "POST" && msg.and_then(|m| m.get("method")) == Some(&json!("tools/call")) {
-            calls_clone.lock().unwrap().push(msg.and_then(|m| m.get("params")).cloned());
+            calls_clone.lock().push(msg.and_then(|m| m.get("params")).cloned());
             let id = msg.unwrap().get("id").cloned().unwrap();
             return json_reply(
                 200,
@@ -404,7 +404,7 @@ fn test_discovered_required_fields_gate_calls_without_guessing() {
     let mut client = McpClient::new(TOKEN, &server.endpoint, 2.0).unwrap();
     assert!(client.call_nutrition(&json!({})).is_err());
     assert!(client.call_nutrition(&json!({ "region": null })).is_err());
-    assert!(calls.lock().unwrap().is_empty());
+    assert!(calls.lock().is_empty());
     client.close();
 }
 
@@ -451,7 +451,7 @@ fn test_structured_nutrition_decimals_keep_remote_precision() {
 
 #[test]
 fn test_session_and_negotiated_protocol_survive_until_delete() {
-    let deletes = Arc::new(std::sync::Mutex::new(0));
+    let deletes = Arc::new(parking_lot::Mutex::new(0));
     let deletes_clone = deletes.clone();
 
     let server = TestServer::new(Arc::new(move |method, msg, headers| {
@@ -464,7 +464,7 @@ fn test_session_and_negotiated_protocol_survive_until_delete() {
             return (400, vec![], b"bad session/protocol".to_vec());
         }
         if method == "DELETE" {
-            *deletes_clone.lock().unwrap() += 1;
+            *deletes_clone.lock() += 1;
         }
         (204, vec![], vec![])
     }));
@@ -473,7 +473,7 @@ fn test_session_and_negotiated_protocol_survive_until_delete() {
     client.initialize().unwrap();
     client.close();
     client.close();
-    assert_eq!(*deletes.lock().unwrap(), 1);
+    assert_eq!(*deletes.lock(), 1);
 }
 
 #[test]
@@ -535,12 +535,12 @@ fn test_tool_and_jsonrpc_errors_are_sanitized() {
 
 #[test]
 fn test_close_is_best_effort_and_no_delete_without_session() {
-    let deletes = Arc::new(std::sync::Mutex::new(0));
+    let deletes = Arc::new(parking_lot::Mutex::new(0));
     let deletes_clone = deletes.clone();
 
     let server = TestServer::new(Arc::new(move |method, msg, headers| {
         if method == "DELETE" {
-            *deletes_clone.lock().unwrap() += 1;
+            *deletes_clone.lock() += 1;
             return (500, vec![], TOKEN.as_bytes().to_vec());
         }
         default_responder(method, msg, headers)
@@ -548,11 +548,11 @@ fn test_close_is_best_effort_and_no_delete_without_session() {
 
     let mut client = McpClient::new(TOKEN, &server.endpoint, 2.0).unwrap();
     client.close();
-    assert_eq!(*deletes.lock().unwrap(), 0);
+    assert_eq!(*deletes.lock(), 0);
 
     client.initialize().unwrap();
     client.close();
-    assert_eq!(*deletes.lock().unwrap(), 1);
+    assert_eq!(*deletes.lock(), 1);
 }
 
 #[test]

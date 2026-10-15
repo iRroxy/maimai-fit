@@ -1,7 +1,9 @@
+mod web;
+
 use clap::{Args, Parser, Subcommand};
 use maimai::catalog::{
-    load_catalog, normalize_tool_result, parse_strict_json, validate_catalog, CatalogDocument,
-    Diagnostics, Source, SourceKind,
+    catalog_from_tool_result, load_catalog, parse_strict_json, validate_catalog, CatalogDocument,
+    SourceKind,
 };
 use maimai::mcp::{McpClient, McpError};
 use maimai::planner::{parse_number, solve, Constraints, PlanningError, PlanningResult};
@@ -69,6 +71,14 @@ enum Commands {
         args: PlanningArgs,
     },
 
+    #[command(about = "启动本机图形配餐界面，实时获取官方营养数据或导入目录")]
+    Serve {
+        #[arg(long, help = "可选离线营养目录路径；省略时在页面获取或导入")]
+        catalog: Option<PathBuf>,
+        #[arg(long, default_value_t = 8765, help = "本机端口；0 为自动分配")]
+        port: u16,
+    },
+
     #[command(about = "从官方 MCP 获取营养目录")]
     Fetch {
         #[arg(long, help = "输出目录路径")]
@@ -96,6 +106,7 @@ enum Commands {
 
 const DEMO_ANCHOR: &str = "示例鸡肉主食（一份）";
 const DEMO_CATALOG: &str = include_str!("../examples/demo.json");
+const SKILL: &str = include_str!("../skills/maimai-fit/SKILL.md");
 
 fn output_parent(path: &Path) -> &Path {
     path.parent()
@@ -314,7 +325,7 @@ fn execute_fetch(
         }
     }
 
-    let args_val: Value = serde_json::from_str(args_json).map_err(|_| {
+    let args_val = parse_strict_json(args_json).map_err(|_| {
         PlanningError("--arguments 必须是有效 JSON 对象".into())
     })?;
 
@@ -327,36 +338,20 @@ fn execute_fetch(
 
     let result = client.call_nutrition(&args_val)?;
 
+    save_fetched_catalog(out_path, raw_out, &result)
+}
+
+fn save_fetched_catalog(
+    out_path: &Path,
+    raw_out: Option<&Path>,
+    result: &Value,
+) -> Result<i32, Box<dyn std::error::Error>> {
     if let Some(raw_path) = raw_out {
-        save_json(raw_path, &result)?;
+        save_json(raw_path, result)?;
         eprintln!("营养工具原始返回已保存：{}", raw_path.display());
     }
 
-    let mut diagnostics = Diagnostics::default();
-    let foods = normalize_tool_result(&result, &mut diagnostics)?;
-
-    let mut note = "官方 MCP 工具返回的每份营养数据；并非门店实时菜单。".to_string();
-    if diagnostics.format.as_deref() == Some("mcd-toon") {
-        let in_rows = diagnostics.input_rows.unwrap_or(0);
-        let dup_rows = diagnostics.duplicate_rows_removed.unwrap_or(0);
-        note.push_str(&format!(
-            "原始 TOON {in_rows} 行，合并 {dup_rows} 行完全相同条目，保留 {} 项；有冲突的同名数据仍拒绝。蛋白质 g、钠 mg 与单份口径依据官方营养计算器：https://www.mcdonalds.com.cn/nutrition_calculator",
-            foods.len()
-        ));
-    }
-
-    let doc = CatalogDocument {
-        schema_version: 1,
-        source: Source {
-            kind: SourceKind::Mcp,
-            tool: Some("list-nutrition-foods".into()),
-            fetched_at: Some(chrono::Utc::now().to_rfc3339()),
-            note: Some(note),
-        },
-        foods,
-    };
-
-    let validated = validate_catalog(&serde_json::to_value(&doc)?)?;
+    let validated = catalog_from_tool_result(result)?;
     let doc_json = serde_json::to_value(&validated)?;
     save_json(out_path, &doc_json)?;
 
@@ -364,23 +359,15 @@ fn execute_fetch(
     Ok(0)
 }
 
-fn copy_dir_all(src: &Path, dst: &Path, ignore_pycache: bool) -> io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let file_name = entry.file_name();
-        let name_str = file_name.to_string_lossy();
-        if ignore_pycache && (name_str == "__pycache__" || name_str.ends_with(".pyc")) {
-            continue;
-        }
-        let src_path = entry.path();
-        let dst_path = dst.join(&file_name);
-        if file_type.is_dir() {
-            copy_dir_all(&src_path, &dst_path, ignore_pycache)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
-        }
+fn create_install_parents(path: &Path, created: &mut Vec<PathBuf>) -> io::Result<()> {
+    if path.is_dir() {
+        return Ok(());
+    }
+    create_install_parents(output_parent(path), created)?;
+    match fs::create_dir(path) {
+        Ok(()) => created.push(path.to_owned()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => {}
+        Err(error) => return Err(error),
     }
     Ok(())
 }
@@ -388,47 +375,51 @@ fn copy_dir_all(src: &Path, dst: &Path, ignore_pycache: bool) -> io::Result<()> 
 fn execute_install(to_path: Option<&Path>) -> Result<i32, Box<dyn std::error::Error>> {
     let default_dest = dirs_home().join(".agents").join("skills").join("maimai-fit");
     let destination = to_path.unwrap_or(&default_dest);
-
-    let source = Path::new("skills").join("maimai-fit");
-    if !source.join("SKILL.md").is_file() {
-        return Err(PlanningError("请从完整项目仓库运行 install，而不是从已安装 Skill 内再次安装".into()).into());
-    }
-
     if destination.exists() || destination.is_symlink() {
         return Err(PlanningError(format!("安装目标已存在，未覆盖：{}", destination.display())).into());
     }
 
-    fs::create_dir_all(destination)?;
-    fs::copy(source.join("SKILL.md"), destination.join("SKILL.md"))?;
+    let mut executable = fs::File::open(std::env::current_exe()?)?;
+    let mut directories = Vec::new();
+    let mut files = Vec::new();
+    let scripts = destination.join("scripts");
+    let binary = scripts.join(format!("maimai{}", std::env::consts::EXE_SUFFIX));
+    let install = (|| -> io::Result<()> {
+        create_install_parents(output_parent(destination), &mut directories)?;
+        // Unlike create_dir_all, this refuses a destination created concurrently.
+        fs::create_dir(destination)?;
+        directories.push(destination.to_owned());
+        fs::create_dir(&scripts)?;
+        directories.push(scripts.clone());
 
-    let scripts_dir = destination.join("scripts");
-    fs::create_dir_all(&scripts_dir)?;
-    if source.join("scripts").join("run.py").is_file() {
-        fs::copy(source.join("scripts").join("run.py"), scripts_dir.join("run.py"))?;
-    }
+        let skill_path = destination.join("SKILL.md");
+        let mut skill = OpenOptions::new().write(true).create_new(true).open(&skill_path)?;
+        files.push(skill_path);
+        skill.write_all(SKILL.as_bytes())?;
 
-    let runtime_dir = scripts_dir.join("runtime");
-    fs::create_dir_all(&runtime_dir)?;
-    if Path::new("maimai").is_dir() {
-        copy_dir_all(Path::new("maimai"), &runtime_dir.join("maimai"), true)?;
-    }
-    if Path::new("examples").is_dir() {
-        copy_dir_all(Path::new("examples"), &runtime_dir.join("examples"), false)?;
-    }
-
-    let rust_bin = Path::new("target").join("release").join("maimai");
-    if rust_bin.is_file() {
-        let dest_bin = scripts_dir.join("maimai");
-        let _ = fs::copy(&rust_bin, &dest_bin);
+        let mut installed = OpenOptions::new().write(true).create_new(true).open(&binary)?;
+        files.push(binary.clone());
+        io::copy(&mut executable, &mut installed)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&dest_bin, fs::Permissions::from_mode(0o755));
+            installed.set_permissions(fs::Permissions::from_mode(0o755))?;
         }
+        Ok(())
+    })();
+    if let Err(error) = install {
+        // Never recursively remove a directory: it may contain someone else's files.
+        for path in files.iter().rev() {
+            let _ = fs::remove_file(path);
+        }
+        for path in directories.iter().rev() {
+            let _ = fs::remove_dir(path);
+        }
+        return Err(error.into());
     }
 
     println!("已安装自包含 Skill：{}", destination.display());
-    println!("可独立运行：python3 {} demo", scripts_dir.join("run.py").display());
+    println!("可独立运行：{} demo", binary.display());
     println!("客户端的 Skill 发现路径各有不同；如未自动识别，请在客户端导入这个目录。未修改 MCP 配置。");
     Ok(0)
 }
@@ -449,6 +440,11 @@ fn run(command: Commands) -> Result<i32, Box<dyn std::error::Error>> {
             execute_plan(&catalog, args)
         }
         Commands::Plan { catalog, args } => execute_plan(&load_catalog(&catalog)?, args),
+        Commands::Serve { catalog, port } => {
+            let catalog = catalog.as_deref().map(load_catalog).transpose()?;
+            web::serve(catalog, port)?;
+            Ok(0)
+        }
         Commands::Fetch { out, raw_out, arguments, ask_token } =>
             execute_fetch(&out, raw_out.as_deref(), &arguments, ask_token),
         Commands::Inspect { ask_token } => {
@@ -472,4 +468,49 @@ fn main() {
         1
     });
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn fetch_output_keeps_raw_evidence_when_normalization_fails() {
+        let directory = tempfile::tempdir().unwrap();
+        let out = directory.path().join("catalog.json");
+        let raw = directory.path().join("raw.json");
+        let payload = parse_strict_json(
+            r#"{"content":[{"type":"text","text":"unknown nutrition format"}],"diagnostic":0.12345678901234567890123456789}"#,
+        ).unwrap();
+        assert!(save_fetched_catalog(&out, Some(&raw), &payload).is_err());
+        assert!(!out.exists());
+        let saved = parse_strict_json(&fs::read_to_string(&raw).unwrap()).unwrap();
+        assert_eq!(saved, payload);
+        assert_eq!(saved["diagnostic"].to_string(), "0.12345678901234567890123456789");
+    }
+
+    #[test]
+    fn fetch_output_normalizes_exact_numbers_and_never_overwrites_raw() {
+        let directory = tempfile::tempdir().unwrap();
+        let out = directory.path().join("catalog.json");
+        let raw = directory.path().join("raw.json");
+        let payload = parse_strict_json(
+            r#"{"structuredContent":{"foods":[{"name":"Official A","kcal":500.00000000000000000000000000001,"protein_g":30}]}}"#,
+        ).unwrap();
+        let before = chrono::Utc::now();
+        assert_eq!(save_fetched_catalog(&out, Some(&raw), &payload).unwrap(), 0);
+        let catalog = load_catalog(&out).unwrap();
+        assert_eq!(catalog.foods[0].kcal, "500.00000000000000000000000000001");
+        assert_eq!(catalog.foods[0].sodium_mg, None);
+        assert_eq!(catalog.source.kind, SourceKind::Mcp);
+        let fetched = chrono::DateTime::parse_from_rfc3339(catalog.source.fetched_at.as_ref().unwrap()).unwrap();
+        assert!(fetched >= before && fetched <= chrono::Utc::now());
+        assert_eq!(parse_strict_json(&fs::read_to_string(&raw).unwrap()).unwrap(), payload);
+
+        let another = directory.path().join("another.json");
+        assert!(save_fetched_catalog(&another, Some(&raw), &json!({"content": []})).is_err());
+        assert!(!another.exists());
+        assert_eq!(parse_strict_json(&fs::read_to_string(&raw).unwrap()).unwrap(), payload);
+    }
 }

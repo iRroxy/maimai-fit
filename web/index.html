@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>麦麦刚刚好 · 互动配餐</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/loader.js"></script>
+</head>
+<body>
+  <header class="topbar wrap">
+    <a class="brand" href="/" aria-label="麦麦刚刚好首页"><span class="brand-mark" aria-hidden="true">m</span><span>麦麦刚刚好<small>MAIMAI FIT</small></span></a>
+    <span class="local-badge"><span aria-hidden="true"></span>在线营养 · 不下单</span>
+  </header>
+  <main class="wrap">
+    <section class="hero">
+      <div><p class="eyebrow">YOUR PICKS. YOUR PLAN.</p><h1>想吃的，留下。<br>剩下的，<span>刚刚好。</span></h1><p class="hero-copy">先选定心仪餐品，再用你设定的营养条件找搭配。<br>不换规格，不偷偷放宽限制。</p></div>
+      <div class="hero-note"><span class="note-number">01—03</span><strong>不同餐品 · 每种一份</strong><p>精确十进制计算<br>热量 / 蛋白质 / 钠</p></div>
+    </section>
+    <section class="panel online-panel" aria-labelledby="online-title">
+      <div class="online-intro"><p class="eyebrow">LIVE / OFFICIAL MCP</p><h2 id="online-title">连接官方营养数据</h2><p>仅调用 <code>list-nutrition-foods</code>，不触发下单、领券或积分操作。</p><a href="https://open.mcd.cn/mcp" target="_blank" rel="noreferrer">自行获取官方 Token ↗</a></div>
+      <form id="online-form" autocomplete="off">
+        <fieldset id="online-fields" disabled>
+          <legend class="sr-only">官方 MCP 连接</legend>
+          <label class="token-label" for="mcp-token">MCP Token <span>仅用于本次请求</span></label>
+          <div class="online-connect"><input id="mcp-token" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="在本机输入，不要发到聊天" required><button id="fetch-nutrition" class="button primary" type="submit">获取官方营养 ↗</button></div>
+          <p class="credential-note">Token 仅发给本机服务，再用于 <code>https://mcp.mcd.cn</code>；每次请求后清空，应用不保存。请勿在共享设备输入。</p>
+          <details class="tool-arguments"><summary>工具参数 · 按实际定义填写</summary><p>可先读取当次参数定义；无必填项时使用 <code>{}</code>。不要把 Token 写入参数，也不要猜测必填值。</p><button id="inspect-tool" class="button secondary" type="button">读取参数定义</button><label for="online-arguments">营养工具参数（JSON 对象）</label><textarea id="online-arguments" rows="3" spellcheck="false">{}</textarea></details>
+        </fieldset>
+        <p id="online-status" class="notice" role="status" aria-live="polite" hidden></p>
+        <details id="tool-definition" class="tool-definition" hidden><summary>官方返回的参数定义（外部数据）</summary><pre id="tool-schema"></pre></details>
+      </form>
+    </section>
+    <noscript><p class="notice error">互动界面需要支持 WebAssembly 和模块加载的浏览器；也可在终端使用 plan 命令。</p></noscript>
+    <p id="message" class="notice" role="status" aria-live="polite" hidden></p>
+    <div class="workspace">
+      <aside class="panel catalog-panel" aria-labelledby="catalog-title">
+        <div class="section-heading"><div><p class="eyebrow">01 / KEEP WHAT YOU LOVE</p><h2 id="catalog-title">留下想吃的</h2></div><span id="food-count" class="pill">载入中</span></div>
+        <div class="catalog-actions"><label class="button secondary file-button">导入目录 JSON<input id="catalog-file" type="file" accept=".json,application/json" aria-label="导入营养目录 JSON"></label><button id="restore" class="text-button" type="button" disabled>恢复启动目录</button></div>
+        <div class="source-info"><span id="source-kind" class="source-label">尚未获取官方营养</span><p id="source-description">在线获取或导入目录后，选择要保留的精确餐品与规格。</p><details id="source-details" hidden><summary>查看来源说明</summary><p id="source-note"></p></details></div>
+        <label class="search-label" for="search">查找餐品与规格</label><input id="search" type="search" placeholder="输入名称关键词…" autocomplete="off" disabled>
+        <p class="selection-hint">选择 1–3 种保留项，合计数量包含它们。</p>
+        <div id="food-list" class="food-list" role="group" aria-label="可保留餐品" aria-busy="true"></div>
+        <div class="selected-footer"><div class="selected-heading"><strong>已保留 <span id="selected-count">0</span> 种</strong><button id="clear" class="text-button" type="button" disabled>清空</button></div><div id="selected-list" class="selected-list"></div></div>
+      </aside>
+      <div class="planning-column">
+        <section class="panel" aria-labelledby="constraints-title">
+          <div class="section-heading"><div><p class="eyebrow">02 / SET YOUR BOUNDARIES</p><h2 id="constraints-title">这一餐，你来定</h2></div><span class="subtle">区间包含端点</span></div>
+          <p class="muted compact">以下默认值仅为演示参数，不是个人营养建议。</p>
+          <form id="plan-form">
+            <fieldset id="planner-fields" disabled>
+              <legend class="sr-only">配餐条件</legend>
+              <div class="fields">
+                <label>最低热量 <span>kcal</span><input id="min-kcal" name="min_kcal" type="number" min="0" step="any" value="450" required></label>
+                <label>最高热量 <span>kcal</span><input id="max-kcal" name="max_kcal" type="number" min="0" step="any" value="650" required></label>
+                <label>最低蛋白质 <span>g</span><input id="min-protein" name="min_protein" type="number" min="0" step="any" value="30" required></label>
+                <label>最高钠 <span>mg · 选填</span><input id="max-sodium" name="max_sodium" type="number" min="0" step="any" placeholder="不限制"></label>
+                <label>合计最多餐品<select id="max-items" name="max_items"><option value="1">1 种</option><option value="2">2 种</option><option value="3" selected>3 种</option></select></label>
+                <label>展示方案数<select id="top" name="top"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option></select></label>
+              </div>
+              <details class="exclusions"><summary>排除不想要的餐品</summary><label for="exclude">名称关键词，每行一个；按字面子串匹配，不是过敏原过滤。</label><textarea id="exclude" name="exclude" rows="2" placeholder="例如：甜点"></textarea></details>
+              <div class="form-footer"><p>设钠上限时，含未知钠的组合不采用。</p><button id="generate" class="button primary" type="submit">生成搭配 <span aria-hidden="true">↗</span></button></div>
+            </fieldset>
+          </form>
+        </section>
+        <section class="results-section" aria-labelledby="results-title" aria-busy="false" id="results-section">
+          <div class="section-heading results-heading"><div><p class="eyebrow">03 / FIND YOUR FIT</p><h2 id="results-title">你的搭配</h2></div><button id="download" type="button" class="button secondary" hidden>导出 JSON</button></div>
+          <p id="result-summary" class="muted compact" aria-live="polite">选好餐品、设定条件，然后生成搭配。</p>
+          <div id="results"><div class="empty-state"><span class="empty-symbol" aria-hidden="true">＋</span><h3>从喜欢的那一份开始</h3><p>符合全部条件的方案会显示在这里。<br>没有合适组合时，也会如实告诉你。</p></div></div>
+          <p id="ranking" class="ranking" hidden></p><p id="export-note" class="muted fine" hidden>导出内容含餐品和目录来源，公开前请审阅。</p>
+        </section>
+      </div>
+    </div>
+    <footer class="footer"><strong>只是配餐工具，不是健康评分。</strong><p>营养目录不是实时菜单；价格、供应及过敏原未核验。不构成医疗、减重或专业营养建议。若自行导入演示目录，合成数据不能据此真实点餐。</p><span>官方营养在线获取 · 配餐本地计算 · 不下单 · 不领券</span></footer>
+  </main>
+</body>
+</html>

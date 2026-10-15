@@ -1,3 +1,8 @@
+[workspace]
+members = ["ui", "xtask"]
+default-members = ["."]
+resolver = "2"
+
 [package]
 name = "maimai-fit"
 version = "1.0.0"
@@ -22,6 +27,11 @@ ureq = { version = "2.10", features = ["json", "tls"] }
 url = "2.5"
 rpassword = "7.3"
 chrono = { version = "0.4", features = ["serde"] }
+httparse = "1"
 
 [dev-dependencies]
 tempfile = "3"
+parking_lot = "0.12"
+
+[profile.release.package.maimai-ui]
+opt-level = "s"

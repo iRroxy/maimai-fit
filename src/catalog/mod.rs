@@ -487,6 +487,33 @@ pub fn load_catalog(path: &Path) -> Result<CatalogDocument, CatalogError> {
     validate_catalog(&doc)
 }
 
+pub fn catalog_from_tool_result(result: &Value) -> Result<CatalogDocument, CatalogError> {
+    let mut diagnostics = Diagnostics::default();
+    let foods = normalize_tool_result(result, &mut diagnostics)?;
+    let mut note = "官方 MCP 工具返回的每份营养数据；并非门店实时菜单。".to_string();
+    if diagnostics.format.as_deref() == Some("mcd-toon") {
+        let in_rows = diagnostics.input_rows.unwrap_or(0);
+        let dup_rows = diagnostics.duplicate_rows_removed.unwrap_or(0);
+        note.push_str(&format!(
+            "原始 TOON {in_rows} 行，合并 {dup_rows} 行完全相同条目，保留 {} 项；有冲突的同名数据仍拒绝。蛋白质 g、钠 mg 与单份口径依据官方营养计算器：https://www.mcdonalds.com.cn/nutrition_calculator",
+            foods.len()
+        ));
+    }
+    let document = CatalogDocument {
+        schema_version: 1,
+        source: Source {
+            kind: SourceKind::Mcp,
+            tool: Some("list-nutrition-foods".into()),
+            fetched_at: Some(chrono::Utc::now().to_rfc3339()),
+            note: Some(note),
+        },
+        foods,
+    };
+    let value = serde_json::to_value(document)
+        .map_err(|_| CatalogError("Cannot encode normalized nutrition catalog.".into()))?;
+    validate_catalog(&value)
+}
+
 pub fn normalize_tool_result(
     result: &Value,
     diagnostics: &mut Diagnostics,

@@ -9,7 +9,7 @@ description: 用麦当劳官方营养数据，保留指定餐品，按用户热�
 
 - 只核验用户给定条件，不制定个人摄入方案或作医疗承诺。组合总共 1–3 个不同餐品，每项一份，包括保留项；不支持多份、半份、去酱或换规格，不推断餐品类别。
 - 业务工具仅 `list-nutrition-foods`。不操作订单、地址、券、积分、抽奖、账号或配置，不代申请 Token、接受条款、报名或发布。
-- 从当前 Skill 目录定位 `scripts/run.py` 的绝对路径，以它替换下文 `RUNNER`。要求 Python ≥3.10，无需 pip；优先 Rust，否则 Python，不切换工作目录。参数看子命令 `--help`。
+- 从当前 Skill 目录定位原生可执行文件 `scripts/maimai`（Windows 为 `scripts/maimai.exe`）的绝对路径，以它替换下文 `RUNNER`。无需其他运行时，不切换工作目录；相对输入/输出路径属于调用者目录。参数看子命令 `--help`。
 - 只有用户明确要演示才运行 `demo`；始终标注虚构名称与合成数据，不用它替代真实查询或补值。
 
 ## 1. 确认目标
@@ -44,10 +44,10 @@ UTF-8 JSON 标准结构如下，文字为待替换占位，不是真实营养数
 
 ## 4. 规划与交付
 
-使用 `tempfile.mkdtemp(prefix="maimai-fit-")` 等创建私有随机目录，不用公用固定临时路径。输出使用尚不存在的文件，建议权限 0600；用 JSON 序列化写数据，不把餐品名拼进代码或 heredoc。凭证、认证头、账号、会话 ID 不进入文件或回复。
-按 argv 数组调用，禁用 `shell=True`，名称是独立参数。下面只是布局，必须先替换占位，再按用户目标追加可选参数：
+用 `mktemp -d` 等创建私有随机目录，不用公用固定临时路径。输出使用尚不存在的文件，建议权限 0600；用 JSON 序列化写数据，不把餐品名拼进代码或 heredoc。凭证、认证头、账号、会话 ID 不进入文件或回复。
+按 argv 数组直接调用原生程序，不经 shell 解释，名称是独立参数。下面只是布局，必须先替换占位，再按用户目标追加可选参数：
 ```text
-python3 RUNNER plan --catalog CATALOG --keep EXACT_NAME --min-kcal USER_MIN --max-kcal USER_MAX --min-protein USER_PROTEIN --json
+RUNNER plan --catalog CATALOG --keep EXACT_NAME --min-kcal USER_MIN --max-kcal USER_MAX --min-protein USER_PROTEIN --json
 ```
 - 每次显式传用户目标；多个保留项重复 `--keep`，排除词重复 `--exclude`（字面子串，不保证过敏安全）；用户要求时才传 `--max-sodium`。
 - 排序：热量距中点 → 添加项更少 → 蛋白质更高 → 名称。读取真实 JSON、统计及退出码：0 成功，1 输入/数据/传输错误，2 无解（参数语法错误也可能为 2，需看 stderr）。不得补造方案或未经授权放宽条件、删保留项、换规格。

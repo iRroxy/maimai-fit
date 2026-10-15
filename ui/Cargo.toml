@@ -1,0 +1,22 @@
+[package]
+name = "maimai-ui"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3.106"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+web-sys = { version = "0.3.106", features = [
+    "Window", "Document", "Element", "Node", "NodeList", "Event", "EventTarget",
+    "DomTokenList", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement",
+    "HtmlSelectElement", "HtmlAnchorElement", "File", "FileList", "Blob",
+    "BlobPropertyBag", "Url", "Request", "RequestInit", "RequestCache",
+    "RequestCredentials", "Headers", "Response",
+] }

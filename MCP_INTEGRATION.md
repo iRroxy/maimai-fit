@@ -6,7 +6,7 @@
 - 参数遵守当次 schema：必填属性用 `--arguments` JSON 对象提供，无必填项默认 `{}`；含义不明就询问用户，不猜参数。CLI 只检查必填属性是否提供，**不是通用 JSON Schema validator**，类型、枚举等仍须遵守。
 - 初始化提议 `2025-03-26`，支持协商版本 `2025-03-26`、`2025-06-18`、`2024-11-05`；保存 session 标识，后续携带协议版本与会话头，关闭会话为 best-effort。
 - 接受 JSON 或有限、受限的 SSE，按 JSON-RPC ID 选消息，不取第一个事件充当结果。凭证不跟随重定向；错误不包含 Token、Authorization 或服务器响应正文。
-- CLI 只用官方 endpoint，不接受自定义远程地址。以上为本地实现约定，不代表已验证官方每种现场响应；失败不以 demo 或陈旧目录冒充成功。
+- CLI 与网页服务只用官方 endpoint，不接受自定义远程地址。以上为本地实现约定，不代表已验证官方每种现场响应；失败不以 demo 或陈旧目录冒充成功。
 
 ## Token 与客户端配置
 本人按[官方指南](https://github.com/M-China/mcd-mcp-server)到[开放平台](https://open.mcd.cn/mcp)手机号验证 → 控制台 → 激活 → 本人阅读并决定是否同意协议 → 复制 Token。Agent 不代登录、不操作验证码、不接受协议、不索取或回显凭证。
@@ -18,11 +18,15 @@ CLI 不读客户端配置，使用 `MCD_MCP_TOKEN`，或本人终端隐藏输入
 ```sh
 read -r -s -p 'MCP Token: ' MCD_MCP_TOKEN; printf '\n'
 export MCD_MCP_TOKEN
-python3 -m maimai fetch --out private-data/catalog.json
+./target/release/maimai fetch --out private-data/catalog.json
 unset MCD_MCP_TOKEN
 ```
 
 先创建输出父目录。避免共享终端、shell tracing 或展示环境变量；不把 Token 发给聊天、配置仓库、截图或日志，泄露后通过官方渠道处理。原始返回、目录、报告按私有文件保管，公开前本人审阅脱敏；`.gitignore` 不等于权限控制，HTML 转义餐品文本且不含认证头。
+
+网页 `serve` 默认无目录：本人在页面密码框输入 Token，在线读取参数定义或获取营养；工具必填项须按当次 schema 明确填写，不猜值。每次请求新建并关闭 MCP 会话，Token 输入随后清空，应用不写入文件、URL、浏览器存储或日志，不隐式读取环境凭证。凭证只经本机 POST 和官方 HTTPS Authorization 传递；不要在共享设备输入或把服务端口暴露到公网。
+
+网页获取的目录仅属于当前页面，不替换启动目录或写文件；改动条件/刷新会清除旧方案。获取失败明确报错，不加载替代数据；成功记录实际 `fetched_at`，仍不能声称实时在售。网页与 CLI 共享规范化及 TOON 来源诊断；页面导入的文件自报 MCP 来源仍不等于本次在线获取。
 
 ## 抓取与标准目录
 `fetch` 先预检输出路径及 JSON 对象参数，再读取凭证：父目录须存在，拒绝覆盖，`--out` 与 `--raw-out` 不能指向同一路径。认证、传输、工具缺失或 `isError` 均失败。

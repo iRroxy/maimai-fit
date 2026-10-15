@@ -1,4 +1,4 @@
-use maimai::catalog::{normalize_tool_result, Diagnostics};
+use maimai::catalog::{catalog_from_tool_result, normalize_tool_result, Diagnostics, SourceKind};
 use serde_json::json;
 
 const FIELDS: &str = "productName,nutritionDescription,energyKj,energyKcal,protein,fat,carbohydrate,sodium,calcium";
@@ -60,6 +60,21 @@ fn test_identical_source_entries_merge_with_quality_diagnostics() {
 
     assert_eq!(diagnostics.input_rows, Some(2));
     assert_eq!(diagnostics.duplicate_rows_removed, Some(1));
+}
+
+#[test]
+fn canonical_mcp_catalog_preserves_toon_quality_note_and_actual_fetch_time() {
+    let row = "示例（一份）,null,2092,500,30,10,40,100,20";
+    let before = chrono::Utc::now();
+    let catalog = catalog_from_tool_result(&make_payload(&[row, row], None, None)).unwrap();
+    assert_eq!(catalog.source.kind, SourceKind::Mcp);
+    assert_eq!(catalog.source.tool.as_deref(), Some("list-nutrition-foods"));
+    let fetched = chrono::DateTime::parse_from_rfc3339(catalog.source.fetched_at.as_deref().unwrap()).unwrap();
+    assert!(fetched >= before && fetched <= chrono::Utc::now());
+    let note = catalog.source.note.as_deref().unwrap();
+    assert!(note.contains("原始 TOON 2 行，合并 1 行完全相同条目，保留 1 项"));
+    assert!(note.contains("https://www.mcdonalds.com.cn/nutrition_calculator"));
+    assert_eq!(catalog.foods.len(), 1);
 }
 
 #[test]
